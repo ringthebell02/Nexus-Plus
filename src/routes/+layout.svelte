@@ -22,6 +22,7 @@
 	import type { LayoutData } from './$types';
 	import MusicPill from '$lib/components/music/MusicPill.svelte';
 	import { musicPlayer } from '$lib/stores/musicStore.svelte';
+	import { themeStore, applyTheme } from '$lib/stores/theme.svelte';
 
 	let { children, data }: { children: import('svelte').Snippet; data: LayoutData } = $props();
 
@@ -77,6 +78,10 @@
 		// tabs on prior deploys show up differently in telemetry.
 		installCrashReporter({ buildVersion: (data as any)?.buildVersion });
 		initAnalytics();
+		// Apply saved theme on mount
+		themeStore.subscribe((state) => {
+			applyTheme(state);
+		})();
 		if (data.user) {
 			connectWs();
 			// Kick the bandwidth probe for this session (no-op if recent).

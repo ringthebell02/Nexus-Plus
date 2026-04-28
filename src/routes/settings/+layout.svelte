@@ -17,6 +17,7 @@
 		items={[
 			{ label: 'Profile', href: '/settings/profile' },
 			{ label: 'Accounts', href: '/settings/accounts' },
+			{ label: 'Theme', href: '/settings/theme' },
 			{ label: 'Notifications', href: '/settings/notifications' },
 			{ label: 'Playback', href: '/settings/playback' }
 		]}
