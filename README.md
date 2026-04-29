@@ -1,4 +1,5 @@
-# Nexus
+# Nexus-Plus
+A fork of petalcat/nexus
 
 **One interface for your entire self-hosted media library** — movies, shows, music, books, games, and videos, across all your existing services. Nexus doesn't replace Jellyfin / Plex / Calibre / whatever you already run — it sits on top and gives you one homepage, one search, one player, one set of stats.
 
@@ -59,9 +60,9 @@ New adapters can be added by contributors without modifying any existing code. S
 ## Quick Start — Docker
 
 ```bash
-mkdir nexus && cd nexus
-wget https://raw.githubusercontent.com/PetalCat/Nexus/main/docker-compose.yml
-wget https://raw.githubusercontent.com/PetalCat/Nexus/main/.env.example -O .env
+git clone https://github.com/ringthebell02/Nexus-Plus.git
+cd Nexus-Plus
+Unix: mv .env.example .env | Windows: ren .env.example .env
 docker compose up -d
 ```
 
@@ -72,8 +73,8 @@ On first boot Nexus auto-generates an AES-256 key at `/app/data/.nexus-encryptio
 ## Quick Start — From Source
 
 ```bash
-git clone https://github.com/PetalCat/Nexus.git && cd nexus
-cp .env.example .env
+git clone https://github.com/ringthebell02t/Nexus-Plus.git && cd Nexus-Plus
+Unix: mv .env.example .env | Windows: ren .env.example .env
 pnpm install
 pnpm build
 PORT=8585 node build/index.js
@@ -108,7 +109,7 @@ Honest list so you know what to expect before installing:
 
 From any page in Nexus: `Cmd+Alt+B` (or `Ctrl+Alt+B`) opens a bug report dialog. It auto-fills the URL, your browser, the build version, and any JS errors caught in the last minute, then opens a prefilled GitHub issue in a new tab — you review + click Submit.
 
-You can also file issues directly: <https://github.com/PetalCat/Nexus/issues/new>. For open-ended questions or feature ideas, use [Discussions](https://github.com/PetalCat/Nexus/discussions) instead.
+You can also file issues directly: <https://github.com/ringthebell02/Nexus-Plus/issues/new>. For open-ended questions or feature ideas, use [Discussions](https://github.com/PetalCat/Nexus/discussions) instead.
 
 ## Project status
 
