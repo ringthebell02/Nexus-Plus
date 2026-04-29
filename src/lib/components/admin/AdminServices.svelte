@@ -339,6 +339,93 @@
 			? Math.round((proxy.cacheHits / (proxy.cacheHits + proxy.cacheMisses)) * 100)
 			: 0
 	);
+
+	// ── Indexer management state ─────────────────────────────────────────
+	type IndexerService = 'jackett' | 'sonarr' | 'radarr';
+	let indexerService: IndexerService | '' = $state('');
+	let indexersLoading = $state(false);
+	let indexersData: { indexers: any[]; stats?: any[] } | null = $state(null);
+	let indexerError: string | null = $state(null);
+	let selectedIndexers = $state<Set<number>>(new Set());
+	let bulkUpdating = $state(false);
+
+	// Find available indexer services
+	const indexerServices = $derived(
+		(data.services ?? [])
+			.filter((s: any) => s.enabled && ['jackett', 'sonarr', 'radarr'].includes(s.type))
+			.map((s: any) => ({ id: s.type, name: s.name }))
+	);
+
+	async function loadIndexers(service: IndexerService) {
+		indexersLoading = true;
+		indexersData = null;
+		indexerError = null;
+		selectedIndexers = new Set();
+		try {
+			const res = await fetch(`/api/services/indexers?service=${service}`);
+			if (!res.ok) throw new Error('Failed to load indexers');
+			indexersData = await res.json();
+		} catch (e) {
+			indexerError = e instanceof Error ? e.message : 'Failed to load indexers';
+		} finally {
+			indexersLoading = false;
+		}
+	}
+
+	function toggleIndexer(id: number) {
+		const newSet = new Set(selectedIndexers);
+		if (newSet.has(id)) {
+			newSet.delete(id);
+		} else {
+			newSet.add(id);
+		}
+		selectedIndexers = newSet;
+	}
+
+	function selectAllIndexers() {
+		if (!indexersData?.indexers) return;
+		if (selectedIndexers.size === indexersData.indexers.length) {
+			selectedIndexers = new Set();
+		} else {
+			selectedIndexers = new Set(indexersData.indexers.map((i: any) => i.id));
+		}
+	}
+
+	async function bulkToggleIndexers(enabled: boolean) {
+		if (selectedIndexers.size === 0 || !indexerService) return;
+		bulkUpdating = true;
+		try {
+			const res = await fetch('/api/services/indexers', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({
+					service: indexerService,
+					indexerIds: Array.from(selectedIndexers),
+					enabled
+				})
+			});
+			if (res.ok) {
+				await loadIndexers(indexerService as IndexerService);
+				toast.success(`Updated ${(await res.json()).updated} indexers`);
+			}
+		} catch (e) {
+			toast.error('Failed to update indexers');
+		} finally {
+			bulkUpdating = false;
+		}
+	}
+
+	function openIndexerPanel(service: string) {
+		indexerService = service as IndexerService;
+		loadIndexers(indexerService as IndexerService);
+	}
+
+	function closeIndexerPanel() {
+		indexerService = '';
+		indexersData = null;
+		indexerError = null;
+		selectedIndexers = new Set();
+	}
 </script>
 
 <!-- ── Configured Services (CRUD) ─────────────────────────────────────── -->
@@ -1096,6 +1183,191 @@
 						<span class="flex-shrink-0 rounded-full px-2 py-0.5 text-[9px] font-bold uppercase"
 							style="background: {indexer.enable ? 'rgba(52,211,153,0.1)' : 'rgba(248,113,113,0.1)'}; color: {indexer.enable ? '#34d399' : '#f87171'}; border: 1px solid {indexer.enable ? 'rgba(52,211,153,0.2)' : 'rgba(248,113,113,0.2)'}">
 							{indexer.enable ? 'Enabled' : 'Disabled'}
+						</span>
+					</div>
+				{/each}
+			</div>
+		{:else}
+			<div class="rounded-2xl py-8 text-center" style="background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.06)">
+				<p class="text-sm text-[var(--color-muted)]">No indexers configured</p>
+			</div>
+		{/if}
+	</section>
+{/if}
+
+<!-- ── Indexer Management (Jackett, Sonarr, Radarr) ───────────────────── -->
+{#if indexerServices.length > 0}
+	<section class="mb-8">
+		<div class="mb-4 flex items-center justify-between">
+			<h2 class="text-display text-sm font-semibold uppercase tracking-widest text-[var(--color-muted)]">
+				Indexer Management
+			</h2>
+			{#if !indexerService}
+				<div class="flex gap-2">
+					{#each indexerServices as svc (svc.id)}
+						<button
+							onclick={() => openIndexerPanel(svc.id)}
+							class="rounded-lg px-3 py-1.5 text-xs font-medium text-[var(--color-muted)] transition-colors hover:text-[var(--color-cream)]"
+							style="background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1)"
+						>
+							{svc.id === 'jackett' ? 'Jackett' : svc.id === 'sonarr' ? 'Sonarr' : 'Radarr'} Indexers
+						</button>
+					{/each}
+				</div>
+			{/if}
+		</div>
+
+		{#if indexerService}
+			<!-- Indexer Panel -->
+			<div class="rounded-2xl p-5" style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.07)">
+				<div class="mb-4 flex items-center justify-between">
+					<div class="flex items-center gap-2">
+						<h3 class="text-sm font-semibold capitalize">{indexerService} Indexers</h3>
+						{#if indexersData?.indexers}
+							<span class="rounded-full px-2 py-0.5 text-[10px]" style="background: rgba(255,255,255,0.08)">{indexersData.indexers.length}</span>
+						{/if}
+					</div>
+					<button onclick={closeIndexerPanel} class="text-xs text-[var(--color-muted)] hover:text-[var(--color-cream)]">Close</button>
+				</div>
+
+				{#if indexersLoading}
+					<p class="text-sm text-[var(--color-muted)]">Loading indexers...</p>
+				{:else if indexerError}
+					<div class="rounded-lg px-3 py-2 text-xs" style="background: rgba(248,113,113,0.08); border: 1px solid rgba(248,113,113,0.15); color: #f87171">
+						{indexerError}
+					</div>
+				{:else if indexersData?.indexers && indexersData.indexers.length > 0}
+					<!-- Bulk actions -->
+					<div class="mb-4 flex items-center gap-3">
+						<label class="flex items-center gap-2 text-xs text-[var(--color-muted)]">
+							<input
+								type="checkbox"
+								checked={selectedIndexers.size === indexersData.indexers.length && indexersData.indexers.length > 0}
+								onchange={selectAllIndexers}
+								class="h-4 w-4 rounded"
+							/>
+							Select All ({selectedIndexers.size} selected)
+						</label>
+
+						{#if selectedIndexers.size > 0}
+							<div class="flex gap-2">
+								<button
+									onclick={() => bulkToggleIndexers(true)}
+									disabled={bulkUpdating}
+									class="rounded-lg px-3 py-1 text-xs font-medium text-[#34d399] transition-colors hover:text-[#34d399aa]"
+									style="background: rgba(52,211,153,0.1); border: 1px solid rgba(52,211,153,0.2)"
+								>
+									{bulkUpdating ? 'Enabling...' : 'Enable Selected'}
+								</button>
+								<button
+									onclick={() => bulkToggleIndexers(false)}
+									disabled={bulkUpdating}
+									class="rounded-lg px-3 py-1 text-xs font-medium text-[#f87171] transition-colors hover:text-[#f87171aa]"
+									style="background: rgba(248,113,113,0.1); border: 1px solid rgba(248,113,113,0.2)"
+								>
+									{bulkUpdating ? 'Disabling...' : 'Disable Selected'}
+								</button>
+							</div>
+						{/if}
+					</div>
+
+					<!-- Indexer list -->
+					<div class="flex flex-col divide-y" style="border: 1px solid rgba(255,255,255,0.07); border-radius: 12px; overflow: hidden; divide-color: rgba(255,255,255,0.06)">
+						{#each indexersData.indexers as indexer (indexer.id)}
+							<div class="flex items-center gap-3 px-4 py-3 transition-colors hover:bg-cream/[0.02]">
+								<input
+									type="checkbox"
+									checked={selectedIndexers.has(indexer.id)}
+									onchange={() => toggleIndexer(indexer.id)}
+									class="h-4 w-4 rounded"
+								/>
+
+								<div class="h-2 w-2 flex-shrink-0 rounded-full"
+									style="background: {indexer.enabled ? '#34d399' : '#f87171'}; {indexer.enabled ? 'box-shadow: 0 0 6px #34d39988' : ''}">
+								</div>
+
+								<div class="min-w-0 flex-1">
+									<p class="truncate text-xs font-medium">{indexer.name}</p>
+									{#if indexer.type}
+										<div class="mt-0.5 flex items-center gap-2 text-[10px] text-[var(--color-muted)]">
+											<span class="capitalize">{indexer.type}</span>
+											{#if indexer.description}
+												<span>&middot;</span>
+												<span class="truncate">{indexer.description}</span>
+											{/if}
+										</div>
+									{/if}
+								</div>
+
+								<span class="flex-shrink-0 rounded-full px-2 py-0.5 text-[9px] font-bold uppercase"
+									style="background: {indexer.enabled ? 'rgba(52,211,153,0.1)' : 'rgba(248,113,113,0.1)'}; color: {indexer.enabled ? '#34d399' : '#f87171'}; border: 1px solid {indexer.enabled ? 'rgba(52,211,153,0.2)' : 'rgba(248,113,113,0.2)'}">
+									{indexer.enabled ? 'Enabled' : 'Disabled'}
+								</span>
+							</div>
+						{/each}
+					</div>
+				{:else}
+					<p class="text-sm text-[var(--color-muted)]">No indexers found</p>
+				{/if}
+			</div>
+		{:else}
+			<div class="rounded-2xl py-8 text-center" style="background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.06)">
+				<p class="text-sm text-[var(--color-muted)]">Click a service above to manage its indexers</p>
+			</div>
+		{/if}
+	</section>
+{/if}
+
+<!-- ── Jackett Indexers ──────────────────────────────────────────────── -->
+{#if data.jackett}
+	<section class="mb-8">
+		<h2 class="mb-4 text-display text-sm font-semibold uppercase tracking-widest text-[var(--color-muted)]">Jackett Indexers</h2>
+
+		{#if data.jackett.stats}
+			<div class="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
+				<div class="rounded-xl p-3" style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06)">
+					<div class="text-lg font-bold tabular-nums" style="color: #34d399">{data.jackett.indexers?.length ?? 0}</div>
+					<div class="text-[10px] text-[var(--color-muted)]">Total Indexers</div>
+				</div>
+				<div class="rounded-xl p-3" style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06)">
+					<div class="text-lg font-bold tabular-nums" style="color: #60a5fa">{data.jackett.stats.reduce((s: number, i: any) => s + i.numRss, 0)}</div>
+					<div class="text-[10px] text-[var(--color-muted)]">RSS Queries</div>
+				</div>
+				<div class="rounded-xl p-3" style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06)">
+					<div class="text-lg font-bold tabular-nums">{data.jackett.stats.reduce((s: number, i: any) => s + i.numAuth, 0)}</div>
+					<div class="text-[10px] text-[var(--color-muted)]">Auth Queries</div>
+				</div>
+				<div class="rounded-xl p-3" style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06)">
+					<div class="text-lg font-bold tabular-nums" style="color: {(data.jackett.stats.reduce((s: number, i: any) => s + i.numError, 0)) > 0 ? '#f87171' : '#34d399'}">{data.jackett.stats.reduce((s: number, i: any) => s + i.numError, 0)}</div>
+					<div class="text-[10px] text-[var(--color-muted)]">Errors</div>
+				</div>
+			</div>
+		{/if}
+
+		{#if data.jackett.indexers && data.jackett.indexers.length > 0}
+			<div class="flex flex-col divide-y" style="border: 1px solid rgba(255,255,255,0.07); border-radius: 16px; overflow: hidden; divide-color: rgba(255,255,255,0.06)">
+				{#each data.jackett.indexers as indexer (indexer.id)}
+					<div class="flex items-center gap-3 px-4 py-3 transition-colors hover:bg-cream/[0.02]">
+						<div class="h-2 w-2 flex-shrink-0 rounded-full"
+							style="background: {indexer.enabled ? '#34d399' : '#f87171'}; {indexer.enabled ? 'box-shadow: 0 0 6px #34d39988' : ''}">
+						</div>
+
+						<div class="min-w-0 flex-1">
+							<p class="truncate text-xs font-medium">{indexer.name}</p>
+							<div class="mt-0.5 flex items-center gap-2 text-[10px] text-[var(--color-muted)]">
+								{#if indexer.type}
+									<span class="capitalize">{indexer.type}</span>
+								{/if}
+								{#if indexer.privacy}
+									<span>&middot;</span>
+									<span class="capitalize">{indexer.privacy}</span>
+								{/if}
+							</div>
+						</div>
+
+						<span class="flex-shrink-0 rounded-full px-2 py-0.5 text-[9px] font-bold uppercase"
+							style="background: {indexer.enabled ? 'rgba(52,211,153,0.1)' : 'rgba(248,113,113,0.1)'}; color: {indexer.enabled ? '#34d399' : '#f87171'}; border: 1px solid {indexer.enabled ? 'rgba(52,211,153,0.2)' : 'rgba(248,113,113,0.2)'}">
+							{indexer.enabled ? 'Enabled' : 'Disabled'}
 						</span>
 					</div>
 				{/each}

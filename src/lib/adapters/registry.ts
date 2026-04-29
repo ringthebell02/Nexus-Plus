@@ -27,6 +27,7 @@ import { streamystatsAdapter } from './streamystats';
 import { bazarrAdapter } from './bazarr';
 import { invidiousAdapter } from './invidious';
 import { plexAdapter } from './plex';
+import { jackettAdapter } from './jackett';
 
 class AdapterRegistry {
 	private adapters = new Map<string, ServiceAdapter>();
@@ -100,6 +101,7 @@ export const registry = new AdapterRegistry()
 	.register(sonarrAdapter)
 	.register(lidarrAdapter)
 	.register(prowlarrAdapter)
+	.register(jackettAdapter)
 	.register(streamystatsAdapter)
 	.register(bazarrAdapter)
 	.register(invidiousAdapter)

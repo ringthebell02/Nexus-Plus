@@ -219,5 +219,54 @@ export const sonarrAdapter: ServiceAdapter = {
 				};
 			});
 		} catch { return []; }
+	},
+
+	// ---------------------------------------------------------------------------
+	// Bulk indexer configuration
+	// ---------------------------------------------------------------------------
+
+	async getIndexers(config): Promise<Array<{ id: number; name: string; enabled: boolean; fields: Array<{ name: string; value: unknown }> }>> {
+		try {
+			const data = await sonarrFetch(config, '/indexer');
+			return (data ?? []).map((i: any) => ({
+				id: i.id,
+				name: i.name,
+				enabled: i.enable,
+				fields: i.fields ?? []
+			}));
+		} catch {
+			return [];
+		}
+	},
+
+	async updateIndexer(config, indexerId: number, updates: { enable?: boolean; fields?: Array<{ name: string; value: unknown }> }) {
+		const body: any = { id: indexerId };
+		if (updates.enable !== undefined) body.enable = updates.enable;
+		if (updates.fields) body.fields = updates.fields;
+
+		const res = await fetch(`${config.url}/api/v3/indexer/${indexerId}?apikey=${config.apiKey}`, {
+			method: 'PUT',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify(body),
+			signal: AbortSignal.timeout(8000)
+		});
+		if (!res.ok) throw new Error(`Sonarr indexer update ${indexerId} → ${res.status}`);
+		return res.json();
+	},
+
+	async bulkUpdateIndexers(config, indexerIds: number[], updates: { enable?: boolean }): Promise<{ updated: number; failed: number }> {
+		let updated = 0;
+		let failed = 0;
+
+		for (const id of indexerIds) {
+			try {
+				await this.updateIndexer(config, id, updates);
+				updated++;
+			} catch {
+				failed++;
+			}
+		}
+
+		return { updated, failed };
 	}
 };

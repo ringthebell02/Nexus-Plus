@@ -3,6 +3,7 @@ import { getEnabledConfigs, getQueue, getServiceConfigs } from '$lib/server/serv
 import { registry } from '$lib/adapters/registry';
 import { withCache } from '$lib/server/cache';
 import { getProwlarrIndexers, getProwlarrStats } from '$lib/adapters/prowlarr';
+import { getJackettIndexers, getJackettIndexerStats } from '$lib/adapters/jackett';
 
 export const load: PageServerLoad = async () => {
 	const services = getServiceConfigs();
@@ -18,9 +19,10 @@ export const load: PageServerLoad = async () => {
 
 	const overseerrConfigs = getEnabledConfigs().filter((c) => c.type === 'overseerr');
 	const prowlarrConfigs = getEnabledConfigs().filter((c) => c.type === 'prowlarr');
+	const jackettConfigs = getEnabledConfigs().filter((c) => c.type === 'jackett');
 	const hasVideoProvider = getEnabledConfigs().some((c) => c.type === 'invidious');
 
-	const [requestsResult, queueResult, prowlarrResult, proxyResult] = await Promise.allSettled([
+	const [requestsResult, queueResult, prowlarrResult, jackettResult, proxyResult] = await Promise.allSettled([
 		// Recent requests across all Overseerr instances
 		withCache('admin-requests', 30_000, () =>
 			Promise.all(
@@ -47,6 +49,17 @@ export const load: PageServerLoad = async () => {
 			return { indexers, stats };
 		}),
 
+		// Jackett indexer stats
+		withCache('admin-jackett', 30_000, async () => {
+			if (jackettConfigs.length === 0) return null;
+			const config = jackettConfigs[0];
+			const [indexers, stats] = await Promise.all([
+				getJackettIndexers(config),
+				getJackettIndexerStats(config)
+			]);
+			return { indexers, stats };
+		}),
+
 		// Stream proxy stats (Rust sub-server on port 3939)
 		withCache('admin-proxy-stats', 10_000, async () => {
 			if (!hasVideoProvider) return null;
@@ -66,6 +79,7 @@ export const load: PageServerLoad = async () => {
 		requests: requestsResult.status === 'fulfilled' ? requestsResult.value : [],
 		queue: queueResult.status === 'fulfilled' ? queueResult.value : [],
 		prowlarr: prowlarrResult.status === 'fulfilled' ? prowlarrResult.value : null,
+		jackett: jackettResult.status === 'fulfilled' ? jackettResult.value : null,
 		proxyStats: proxyResult.status === 'fulfilled' ? proxyResult.value : null
 	};
 };
