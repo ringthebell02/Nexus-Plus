@@ -3,13 +3,24 @@ import type { ServiceConfig, ServiceHealth } from './types';
 import { withCache } from '../server/cache';
 
 async function jackettFetch(config: ServiceConfig, path: string, params?: Record<string, string>) {
-	const url = new URL(`${config.url}/api/v2.0/indexers${path}`);
+	// Jackett API v2.0 - note: path should start with / for root indexers
+	const basePath = path === '/' || path === '' ? '' : path;
+	const url = new URL(`${config.url}/api/v2.0/indexers${basePath}`);
 	url.searchParams.set('apikey', config.apiKey ?? '');
 	if (params) {
 		Object.entries(params).forEach(([key, value]) => {
 			url.searchParams.set(key, value);
 		});
 	}
+	const res = await fetch(url.toString(), { signal: AbortSignal.timeout(8000) });
+	if (!res.ok) throw new Error(`Jackett ${path} → ${res.status}`);
+	return res.json();
+}
+
+// Jackett system status endpoint (different from indexers)
+async function jackettSystemFetch(config: ServiceConfig, path: string) {
+	const url = new URL(`${config.url}/api/v2.0${path}`);
+	url.searchParams.set('apikey', config.apiKey ?? '');
 	const res = await fetch(url.toString(), { signal: AbortSignal.timeout(8000) });
 	if (!res.ok) throw new Error(`Jackett ${path} → ${res.status}`);
 	return res.json();
@@ -51,7 +62,12 @@ export interface JackettSystemStatus {
 
 export async function getJackettIndexers(config: ServiceConfig): Promise<JackettIndexer[]> {
 	return withCache(`jackett:indexers:${config.id}`, 60_000, async () => {
-		const data = await jackettFetch(config, '/');
+		// Jackett indexers endpoint: /api/v2.0/indexers (no trailing slash)
+		const url = new URL(`${config.url}/api/v2.0/indexers`);
+		url.searchParams.set('apikey', config.apiKey ?? '');
+		const res = await fetch(url.toString(), { signal: AbortSignal.timeout(8000) });
+		if (!res.ok) throw new Error(`Jackett indexers → ${res.status}`);
+		const data = await res.json();
 		return (data?.Result ?? []).map((i: any) => ({
 			id: i.id,
 			name: i.name,
@@ -68,7 +84,12 @@ export async function getJackettIndexers(config: ServiceConfig): Promise<Jackett
 
 export async function getJackettIndexerStats(config: ServiceConfig): Promise<JackettIndexerStats[]> {
 	return withCache(`jackett:stats:${config.id}`, 30_000, async () => {
-		const data = await jackettFetch(config, '/stats');
+		// Jackett stats endpoint: /api/v2.0/indexers/stats
+		const url = new URL(`${config.url}/api/v2.0/indexers/stats`);
+		url.searchParams.set('apikey', config.apiKey ?? '');
+		const res = await fetch(url.toString(), { signal: AbortSignal.timeout(8000) });
+		if (!res.ok) throw new Error(`Jackett stats → ${res.status}`);
+		const data = await res.json();
 		return (data?.Result ?? []).map((i: any) => ({
 			indexer: i.indexer,
 			numRss: i.numRss ?? 0,
@@ -191,7 +212,8 @@ export const jackettAdapter: ServiceAdapter = {
 
 	async probeAdminCredential(config) {
 		try {
-			const res = await fetch(`${config.url}/api/v2.0/config?apikey=${encodeURIComponent(config.apiKey ?? '')}`, {
+			// Jackett uses /api/v2.0/system/status for health check
+			const res = await fetch(`${config.url}/api/v2.0/system/status?apikey=${encodeURIComponent(config.apiKey ?? '')}`, {
 				signal: AbortSignal.timeout(5000)
 			});
 			if (res.status === 401 || res.status === 403) return 'invalid';
@@ -214,7 +236,11 @@ export const jackettAdapter: ServiceAdapter = {
 	async ping(config): Promise<ServiceHealth> {
 		const start = Date.now();
 		try {
-			await jackettFetch(config, '/config');
+			// Use system/status endpoint for health check
+			const url = new URL(`${config.url}/api/v2.0/system/status`);
+			url.searchParams.set('apikey', config.apiKey ?? '');
+			const res = await fetch(url.toString(), { signal: AbortSignal.timeout(8000) });
+			if (!res.ok) throw new Error(`Jackett system status → ${res.status}`);
 			return {
 				serviceId: config.id,
 				name: config.name,
