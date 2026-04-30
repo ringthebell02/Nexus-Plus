@@ -268,5 +268,47 @@ export const sonarrAdapter: ServiceAdapter = {
 		}
 
 		return { updated, failed };
-	}
+	},
+
+	// Add a new series to Sonarr
+	async addMedia(config, payload) {
+		const res = await fetch(`${config.url}/api/v3/series?apikey=${config.apiKey}`,
+			{
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify(payload),
+				signal: AbortSignal.timeout(10000)
+			}
+		);
+		if (!res.ok) throw new Error(`Sonarr add series → ${res.status}`);
+		return res.json();
+	},
+
+	// Initiate an automatic search for a series
+	async searchMedia(config, seriesId) {
+		const res = await fetch(`${config.url}/api/v3/command?apikey=${config.apiKey}`,
+			{
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ name: 'SeriesSearch', seriesId }),
+				signal: AbortSignal.timeout(10000)
+			}
+		);
+		if (!res.ok) throw new Error(`Sonarr search series → ${res.status}`);
+		return res.json();
+	},
+
+	// Initiate an interactive/manual search for a specific episode
+	async interactiveSearch(config, episodeId) {
+		const res = await fetch(`${config.url}/api/v3/command?apikey=${config.apiKey}`,
+			{
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ name: 'EpisodeSearch', episodeIds: [episodeId] }),
+				signal: AbortSignal.timeout(10000)
+			}
+		);
+		if (!res.ok) throw new Error(`Sonarr interactive search → ${res.status}`);
+		return res.json();
+	},
 };

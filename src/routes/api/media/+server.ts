@@ -41,3 +41,36 @@ export const GET: RequestHandler = async ({ url, locals }) => {
 		return json({ error: 'Failed to fetch item' }, { status: 500 });
 	}
 };
+
+// POST /api/media/manage — Add/search/interactive search for Sonarr/Radarr
+export const POST: RequestHandler = async ({ request, locals }) => {
+	if (!locals.user) return json({ error: 'Unauthorized' }, { status: 401 });
+	const body = await request.json();
+	const { serviceId, action, payload, mediaId } = body;
+	if (!serviceId || !action) return json({ error: 'Missing serviceId or action' }, { status: 400 });
+
+	const config = getServiceConfig(serviceId);
+	if (!config) return json({ error: 'Service not found' }, { status: 404 });
+	const adapter = registry.get(config.type);
+	if (!adapter) return json({ error: 'Adapter not found' }, { status: 404 });
+
+	try {
+		let result;
+		if (action === 'add') {
+			if (!adapter.addMedia) return json({ error: 'Not supported' }, { status: 400 });
+			result = await adapter.addMedia(config, payload);
+		} else if (action === 'search') {
+			if (!adapter.searchMedia) return json({ error: 'Not supported' }, { status: 400 });
+			result = await adapter.searchMedia(config, mediaId);
+		} else if (action === 'interactiveSearch') {
+			if (!adapter.interactiveSearch) return json({ error: 'Not supported' }, { status: 400 });
+			result = await adapter.interactiveSearch(config, mediaId);
+		} else {
+			return json({ error: 'Unknown action' }, { status: 400 });
+		}
+		return json({ ok: true, result });
+	} catch (e) {
+		console.error('[API] media POST error', e);
+		return json({ error: 'Failed to perform action' }, { status: 500 });
+	}
+};

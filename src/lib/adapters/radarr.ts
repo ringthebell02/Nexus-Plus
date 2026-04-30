@@ -314,5 +314,47 @@ export const radarrAdapter: ServiceAdapter = {
 		}
 
 		return { updated, failed };
-	}
+	},
+
+	// Add a new movie to Radarr
+	async addMedia(config, payload) {
+		const res = await fetch(`${config.url}/api/v3/movie?apikey=${config.apiKey}`,
+			{
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify(payload),
+				signal: AbortSignal.timeout(10000)
+			}
+		);
+		if (!res.ok) throw new Error(`Radarr add movie → ${res.status}`);
+		return res.json();
+	},
+
+	// Initiate an automatic search for a movie
+	async searchMedia(config, movieId) {
+		const res = await fetch(`${config.url}/api/v3/command?apikey=${config.apiKey}`,
+			{
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ name: 'MoviesSearch', movieIds: [movieId] }),
+				signal: AbortSignal.timeout(10000)
+			}
+		);
+		if (!res.ok) throw new Error(`Radarr search movie → ${res.status}`);
+		return res.json();
+	},
+
+	// Initiate an interactive/manual search for a specific movie
+	async interactiveSearch(config, movieId) {
+		const res = await fetch(`${config.url}/api/v3/command?apikey=${config.apiKey}`,
+			{
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ name: 'MoviesSearch', movieIds: [movieId], searchForMovie: true }),
+				signal: AbortSignal.timeout(10000)
+			}
+		);
+		if (!res.ok) throw new Error(`Radarr interactive search → ${res.status}`);
+		return res.json();
+	},
 };

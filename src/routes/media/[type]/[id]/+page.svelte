@@ -722,6 +722,36 @@
 			requesting = false;
 		}
 	}
+
+	// ── Management actions for Sonarr/Radarr ──
+	let manageLoading = $state(false);
+	let manageError = $state('');
+	let manageSuccess = $state('');
+
+	async function manageArr(action: 'add' | 'search' | 'interactiveSearch', payload?: any) {
+		manageLoading = true;
+		manageError = '';
+		manageSuccess = '';
+		try {
+			const res = await fetch('/api/media', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({
+					serviceId: data.serviceId,
+					action,
+					payload,
+					mediaId: item.sourceId
+				})
+			});
+			const body = await res.json();
+			if (body.ok) manageSuccess = action + ' succeeded';
+			else manageError = body.error || 'Failed';
+		} catch (e) {
+			manageError = 'Network error';
+		} finally {
+			manageLoading = false;
+		}
+	}
 </script>
 
 <svelte:head>
@@ -1109,13 +1139,363 @@
 								</button>
 							</div>
 
-							{#if requestError}
-								<p class="anim text-xs" style="--d:600ms; color: var(--color-warm)">{requestError}</p>
+							<!-- Arr Management Actions (Sonarr/Radarr) -->
+							{#if (data.serviceType === 'sonarr' || data.serviceType === 'radarr') && !inLibrary}
+								<div class="flex flex-col gap-2 mt-2">
+									<button class="btn btn-sm btn-accent" on:click={() => manageArr('add', null)} disabled={manageLoading}>
+										{manageLoading ? 'Adding…' : 'Add to ' + (data.serviceType === 'sonarr' ? 'Sonarr' : 'Radarr')}
+									</button>
+									<button class="btn btn-sm btn-accent" on:click={() => manageArr('search', null)} disabled={manageLoading}>
+										{manageLoading ? 'Searching…' : 'Search Now'}
+									</button>
+									<button class="btn btn-sm btn-accent" on:click={() => manageArr('interactiveSearch', null)} disabled={manageLoading}>
+										{manageLoading ? 'Searching…' : 'Interactive Search'}
+									</button>
+									{#if manageError}
+										<p class="text-xs text-[var(--color-warm)]">{manageError}</p>
+									{/if}
+									{#if manageSuccess}
+										<p class="text-xs text-[var(--color-accent)]">{manageSuccess}</p>
+									{/if}
+								</div>
+							{/if}
+						</div>
+
+						<!-- ZONE C: Metadata / Description / Actions (moved from HeroSection) -->
+						<div class="flex flex-col gap-2">
+							<!-- Audio player -->
+							{#if isPlayable && isAudioType}
+								<div class="anim" style="--d:540ms; max-width: 28rem;">
+									{#key item.id}
+									{#if audioPlaybackSession}
+										<NexusPlayer
+											session={audioPlaybackSession}
+											title={item.title}
+											poster={item.poster}
+											progress={item.progress}
+											duration={item.duration}
+											autoplay={autoplay}
+											serviceId={data.serviceId}
+											itemId={jellyfinItemId}
+											isAudio={true}
+											onqualitychange={handleQualityChange}
+											onaudiochange={handleAudioChange}
+											onsubtitlechange={handleSubtitleChange}
+											playbackRate={(data as any).playbackPrefs?.playbackRate ?? 1}
+										/>
+									{:else}
+										<div class="flex items-center justify-center h-24 rounded-lg" style="background: rgba(255,255,255,0.03)">
+											<span class="text-xs text-[var(--color-muted)]">Loading...</span>
+										</div>
+									{/if}
+									{/key}
+								</div>
 							{/if}
 
-							<!-- Studios -->
-							{#if item.studios && item.studios.length > 0}
-								<p class="anim studios-line" style="--d:620ms">{item.studios.join(' · ')}</p>
+							<!-- Progress bar (when not playing) -->
+							{#if !showPlayer && item.progress != null && item.progress > 0 && item.progress < 1 && !isAudioType}
+								<div class="anim flex items-center gap-3" style="--d:540ms">
+									<div class="progress-bar" style="width:16rem">
+										<div class="progress-fill" style="width:{item.progress * 100}%; height:4px"></div>
+									</div>
+									<span class="text-xs" style="color:var(--color-muted)">{formatDuration(Math.round((item.duration ?? 0) * (1 - item.progress)))} remaining</span>
+								</div>
+							{/if}
+
+							<!-- Season / Episode count (Overseerr TV) -->
+							{#if canRequest && item.type === 'show' && seasonCount}
+								<p class="anim text-xs" style="--d:550ms; color: var(--color-muted)">
+									{seasonCount} Season{seasonCount !== 1 ? 's' : ''}{#if item.metadata?.episodeCount} · {item.metadata.episodeCount} Episodes{/if}
+								</p>
+							{/if}
+
+							<!-- Star rating -->
+							<div class="anim star-widget" style="--d:555ms">
+								<div
+									class="star-row"
+									onmouseleave={() => (ratingHover = 0)}
+									role="group"
+									aria-label="Rate this {item.type}"
+								>
+									{#each [1, 2, 3, 4, 5] as star}
+										<button
+											class="star-btn"
+											class:star-filled={(ratingHover || userRating || 0) >= star}
+											onmouseenter={() => (ratingHover = star)}
+											onclick={() => submitRating(star)}
+											aria-label="{star} star{star !== 1 ? 's' : ''}"
+										>
+											<svg width="18" height="18" viewBox="0 0 24 24" fill={((ratingHover || userRating || 0) >= star) ? 'currentColor' : 'none'} stroke="currentColor" stroke-width="1.5">
+												<path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/>
+											</svg>
+										</button>
+									{/each}
+								</div>
+								{#if ratingStats}
+									<span class="star-aggregate">{ratingStats.avg.toFixed(1)} avg ({ratingStats.count})</span>
+								{/if}
+								{#if ratingCleared}
+									<span class="star-cleared">Rating cleared</span>
+								{/if}
+							</div>
+
+							<!-- Actions -->
+							<div class="anim action-row" style="--d:560ms;">
+								{#if isBook && item.actionUrl}
+									<a href={item.actionUrl} class="act-play" style="text-decoration:none">
+										<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 4h8a2 2 0 0 1 2 2v14H4V4z"/><path d="M14 6h4a2 2 0 0 1 2 2v12h-6"/></svg>
+										Read
+									</a>
+								{:else if isPlayable && !showPlayer && !isAudioType}
+									<button class="act-play" onclick={openPlayer}>
+										<svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.14v14l11-7-11-7z" /></svg>
+										{item.progress ? 'Resume' : item.actionLabel ?? 'Play'}
+									</button>
+								{:else if item.type === 'show' && nextEpisode}
+									<a
+										href="/media/{nextEpisode.type}/{nextEpisode.sourceId}?service={nextEpisode.serviceId}&play=1"
+										class="act-play" style="text-decoration:none"
+									>
+										<svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.14v14l11-7-11-7z" /></svg>
+										{#if nextEpisode.progress && nextEpisode.progress > 0 && nextEpisode.progress < 0.9}
+											Resume S{String(nextEpisode.metadata?.seasonNumber ?? selectedSeason ?? '').padStart(2, '0')}E{String(nextEpisode.metadata?.episodeNumber ?? '').padStart(2, '0')}
+										{:else}
+											Watch S{String(nextEpisode.metadata?.seasonNumber ?? selectedSeason ?? '').padStart(2, '0')}E{String(nextEpisode.metadata?.episodeNumber ?? '').padStart(2, '0')}
+										{/if}
+									</a>
+								{:else if canRequest}
+									{#if isAvailable}
+										<a href={item.actionUrl ?? '#'} class="act-play" style="text-decoration:none">
+											<svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M3 3l10 5-10 5V3z"/></svg>
+											Available — Watch
+										</a>
+									{:else if isRequested || requested}
+										<div class="act-status act-status--requested">
+											<svg width="13" height="13" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M2 6l3 3 5-5"/></svg>
+											Requested
+										</div>
+									{:else}
+										<button class="act-play" onclick={requestItem} disabled={requesting}>
+											{#if requesting}
+												<svg class="animate-spin" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10" opacity="0.25"/><path d="M12 2a10 10 0 0 1 10 10" stroke-linecap="round"/></svg>
+												Requesting…
+											{:else}
+												<svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M7 1v12M1 7h12"/></svg>
+												Request
+											{/if}
+										</button>
+									{/if}
+								{/if}
+								<button class="act-back" onclick={() => history.back()}>
+									<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M19 12H5M12 19l-7-7 7-7" /></svg>
+									Back
+								</button>
+								<WatchlistButton
+									mediaId={item.sourceId}
+									serviceId={data.serviceId}
+									mediaType={item.type}
+									mediaTitle={item.title}
+									mediaPoster={item.poster}
+									bind:inWatchlist
+									bind:watchlistItemId
+								/>
+								<button
+									class="group/col flex items-center justify-center rounded-xl p-2.5 transition-all duration-300 bg-cream/[0.06] text-muted hover:bg-cream/[0.1] hover:text-cream"
+									title="Add to Collection"
+									onclick={() => (showCollectionModal = true)}
+								>
+									<FolderPlus size={18} strokeWidth={1.5} class="transition-all duration-300 group-hover/col:scale-105" />
+								</button>
+							</div>
+
+							<!-- Arr Management Actions (Sonarr/Radarr) -->
+							{#if (data.serviceType === 'sonarr' || data.serviceType === 'radarr') && !inLibrary}
+								<div class="flex flex-col gap-2 mt-2">
+									<button class="btn btn-sm btn-accent" on:click={() => manageArr('add', null)} disabled={manageLoading}>
+										{manageLoading ? 'Adding…' : 'Add to ' + (data.serviceType === 'sonarr' ? 'Sonarr' : 'Radarr')}
+									</button>
+									<button class="btn btn-sm btn-accent" on:click={() => manageArr('search', null)} disabled={manageLoading}>
+										{manageLoading ? 'Searching…' : 'Search Now'}
+									</button>
+									<button class="btn btn-sm btn-accent" on:click={() => manageArr('interactiveSearch', null)} disabled={manageLoading}>
+										{manageLoading ? 'Searching…' : 'Interactive Search'}
+									</button>
+									{#if manageError}
+										<p class="text-xs text-[var(--color-warm)]">{manageError}</p>
+									{/if}
+									{#if manageSuccess}
+										<p class="text-xs text-[var(--color-accent)]">{manageSuccess}</p>
+									{/if}
+								</div>
+							{/if}
+						</div>
+
+						<!-- ZONE C: Metadata / Description / Actions (moved from HeroSection) -->
+						<div class="flex flex-col gap-2">
+							<!-- Audio player -->
+							{#if isPlayable && isAudioType}
+								<div class="anim" style="--d:540ms; max-width: 28rem;">
+									{#key item.id}
+									{#if audioPlaybackSession}
+										<NexusPlayer
+											session={audioPlaybackSession}
+											title={item.title}
+											poster={item.poster}
+											progress={item.progress}
+											duration={item.duration}
+											autoplay={autoplay}
+											serviceId={data.serviceId}
+											itemId={jellyfinItemId}
+											isAudio={true}
+											onqualitychange={handleQualityChange}
+											onaudiochange={handleAudioChange}
+											onsubtitlechange={handleSubtitleChange}
+											playbackRate={(data as any).playbackPrefs?.playbackRate ?? 1}
+										/>
+									{:else}
+										<div class="flex items-center justify-center h-24 rounded-lg" style="background: rgba(255,255,255,0.03)">
+											<span class="text-xs text-[var(--color-muted)]">Loading...</span>
+										</div>
+									{/if}
+									{/key}
+								</div>
+							{/if}
+
+							<!-- Progress bar (when not playing) -->
+							{#if !showPlayer && item.progress != null && item.progress > 0 && item.progress < 1 && !isAudioType}
+								<div class="anim flex items-center gap-3" style="--d:540ms">
+									<div class="progress-bar" style="width:16rem">
+										<div class="progress-fill" style="width:{item.progress * 100}%; height:4px"></div>
+									</div>
+									<span class="text-xs" style="color:var(--color-muted)">{formatDuration(Math.round((item.duration ?? 0) * (1 - item.progress)))} remaining</span>
+								</div>
+							{/if}
+
+							<!-- Season / Episode count (Overseerr TV) -->
+							{#if canRequest && item.type === 'show' && seasonCount}
+								<p class="anim text-xs" style="--d:550ms; color: var(--color-muted)">
+									{seasonCount} Season{seasonCount !== 1 ? 's' : ''}{#if item.metadata?.episodeCount} · {item.metadata.episodeCount} Episodes{/if}
+								</p>
+							{/if}
+
+							<!-- Star rating -->
+							<div class="anim star-widget" style="--d:555ms">
+								<div
+									class="star-row"
+									onmouseleave={() => (ratingHover = 0)}
+									role="group"
+									aria-label="Rate this {item.type}"
+								>
+									{#each [1, 2, 3, 4, 5] as star}
+										<button
+											class="star-btn"
+											class:star-filled={(ratingHover || userRating || 0) >= star}
+											onmouseenter={() => (ratingHover = star)}
+											onclick={() => submitRating(star)}
+											aria-label="{star} star{star !== 1 ? 's' : ''}"
+										>
+											<svg width="18" height="18" viewBox="0 0 24 24" fill={((ratingHover || userRating || 0) >= star) ? 'currentColor' : 'none'} stroke="currentColor" stroke-width="1.5">
+												<path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/>
+											</svg>
+										</button>
+									{/each}
+								</div>
+								{#if ratingStats}
+									<span class="star-aggregate">{ratingStats.avg.toFixed(1)} avg ({ratingStats.count})</span>
+								{/if}
+								{#if ratingCleared}
+									<span class="star-cleared">Rating cleared</span>
+								{/if}
+							</div>
+
+							<!-- Actions -->
+							<div class="anim action-row" style="--d:560ms;">
+								{#if isBook && item.actionUrl}
+									<a href={item.actionUrl} class="act-play" style="text-decoration:none">
+										<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 4h8a2 2 0 0 1 2 2v14H4V4z"/><path d="M14 6h4a2 2 0 0 1 2 2v12h-6"/></svg>
+										Read
+									</a>
+								{:else if isPlayable && !showPlayer && !isAudioType}
+									<button class="act-play" onclick={openPlayer}>
+										<svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.14v14l11-7-11-7z" /></svg>
+										{item.progress ? 'Resume' : item.actionLabel ?? 'Play'}
+									</button>
+								{:else if item.type === 'show' && nextEpisode}
+									<a
+										href="/media/{nextEpisode.type}/{nextEpisode.sourceId}?service={nextEpisode.serviceId}&play=1"
+										class="act-play" style="text-decoration:none"
+									>
+										<svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.14v14l11-7-11-7z" /></svg>
+										{#if nextEpisode.progress && nextEpisode.progress > 0 && nextEpisode.progress < 0.9}
+											Resume S{String(nextEpisode.metadata?.seasonNumber ?? selectedSeason ?? '').padStart(2, '0')}E{String(nextEpisode.metadata?.episodeNumber ?? '').padStart(2, '0')}
+										{:else}
+											Watch S{String(nextEpisode.metadata?.seasonNumber ?? selectedSeason ?? '').padStart(2, '0')}E{String(nextEpisode.metadata?.episodeNumber ?? '').padStart(2, '0')}
+										{/if}
+									</a>
+								{:else if canRequest}
+									{#if isAvailable}
+										<a href={item.actionUrl ?? '#'} class="act-play" style="text-decoration:none">
+											<svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M3 3l10 5-10 5V3z"/></svg>
+											Available — Watch
+										</a>
+									{:else if isRequested || requested}
+										<div class="act-status act-status--requested">
+											<svg width="13" height="13" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M2 6l3 3 5-5"/></svg>
+											Requested
+										</div>
+									{:else}
+										<button class="act-play" onclick={requestItem} disabled={requesting}>
+											{#if requesting}
+												<svg class="animate-spin" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10" opacity="0.25"/><path d="M12 2a10 10 0 0 1 10 10" stroke-linecap="round"/></svg>
+												Requesting…
+											{:else}
+												<svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M7 1v12M1 7h12"/></svg>
+												Request
+											{/if}
+										</button>
+									{/if}
+								{/if}
+								<button class="act-back" onclick={() => history.back()}>
+									<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M19 12H5M12 19l-7-7 7-7" /></svg>
+									Back
+								</button>
+								<WatchlistButton
+									mediaId={item.sourceId}
+									serviceId={data.serviceId}
+									mediaType={item.type}
+									mediaTitle={item.title}
+									mediaPoster={item.poster}
+									bind:inWatchlist
+									bind:watchlistItemId
+								/>
+								<button
+									class="group/col flex items-center justify-center rounded-xl p-2.5 transition-all duration-300 bg-cream/[0.06] text-muted hover:bg-cream/[0.1] hover:text-cream"
+									title="Add to Collection"
+									onclick={() => (showCollectionModal = true)}
+								>
+									<FolderPlus size={18} strokeWidth={1.5} class="transition-all duration-300 group-hover/col:scale-105" />
+								</button>
+							</div>
+
+							<!-- Arr Management Actions (Sonarr/Radarr) -->
+							{#if (data.serviceType === 'sonarr' || data.serviceType === 'radarr') && !inLibrary}
+								<div class="flex flex-col gap-2 mt-2">
+									<button class="btn btn-sm btn-accent" on:click={() => manageArr('add', null)} disabled={manageLoading}>
+										{manageLoading ? 'Adding…' : 'Add to ' + (data.serviceType === 'sonarr' ? 'Sonarr' : 'Radarr')}
+									</button>
+									<button class="btn btn-sm btn-accent" on:click={() => manageArr('search', null)} disabled={manageLoading}>
+										{manageLoading ? 'Searching…' : 'Search Now'}
+									</button>
+									<button class="btn btn-sm btn-accent" on:click={() => manageArr('interactiveSearch', null)} disabled={manageLoading}>
+										{manageLoading ? 'Searching…' : 'Interactive Search'}
+									</button>
+									{#if manageError}
+										<p class="text-xs text-[var(--color-warm)]">{manageError}</p>
+									{/if}
+									{#if manageSuccess}
+										<p class="text-xs text-[var(--color-accent)]">{manageSuccess}</p>
+									{/if}
+								</div>
 							{/if}
 						</div>
 					</div>
@@ -1640,7 +2020,7 @@
 								class="book-format-pill"
 							>
 								{#if fmtUpper === 'EPUB'}
-									<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
+									<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M14 6h4a2 2 0 0 1 2 2v12h-6"/></svg>
 								{:else if fmtUpper === 'PDF'}
 									<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
 								{:else}
@@ -2278,6 +2658,189 @@
 		border-radius: 100px; background: rgba(107,189,69,0.12);
 	}
 
+	/* Hero content overlay — sits inside HeroSection's .hero-content (relative, z-index:5, height:100%) */
+	.hero__content {
+		width: 100%;
+		height: 100%;
+		display: flex;
+		align-items: flex-end;
+		padding: 1.75rem 1.25rem;
+	}
+	@media (min-width: 640px) { .hero__content { padding: 2.25rem 1.75rem; } }
+
+	.hero__layout {
+		display: flex; gap: 1.75rem; align-items: flex-end;
+		max-width: 72rem; margin: 0 auto;
+	}
+
+	/* Poster card */
+	.hero__poster { display: none; }
+	@media (min-width: 768px) {
+		.hero__poster {
+			display: block; flex-shrink: 0; width: 175px;
+		}
+		.hero__poster img {
+			width: 100%; border-radius: 10px;
+			box-shadow: 0 18px 60px rgba(0,0,0,0.7), 0 0 0 1px rgba(255,255,255,0.06);
+		}
+	}
+	@media (min-width: 1024px) { .hero__poster { width: 230px; } }
+
+	.hero__info {
+		flex: 1; min-width: 0;
+		display: flex; flex-direction: column;
+	}
+
+	.hero-zone-a {
+		display: flex; flex-direction: column; gap: 0.45rem;
+	}
+	.hero-zone-b {
+		display: flex; flex-direction: column; gap: 0.6rem;
+		margin-top: 1.25rem;
+	}
+	.hero-zone-c {
+		display: flex; flex-direction: column; gap: 0.55rem;
+		margin-top: 1.5rem;
+	}
+
+	.hero__mobile-poster {
+		width: 48px; height: auto; border-radius: 6px;
+		box-shadow: 0 4px 16px rgba(0,0,0,0.5);
+		flex-shrink: 0;
+	}
+	@media (min-width: 768px) { .hero__mobile-poster { display: none; } }
+
+	/* Badges */
+	.type-label {
+		font-size: 0.68rem; font-weight: 500;
+		text-transform: uppercase; letter-spacing: 0.08em;
+		color: var(--color-muted);
+	}
+	.official-rating {
+		font-size: 0.62rem; font-weight: 700; letter-spacing: 0.06em;
+		color: var(--color-muted);
+		padding: 0.175rem 0.45rem;
+		border: 1px solid rgba(240,235,227,0.06); border-radius: 4px;
+	}
+
+	/* Series line */
+	.series-line {
+		font-family: var(--font-display); font-size: 0.9rem; font-weight: 600;
+		color: var(--color-muted); letter-spacing: -0.01em;
+	}
+	.series-code {
+		margin-left: 0.35rem;
+		font-family: var(--font-mono); font-size: 0.78rem; font-weight: 500;
+		color: var(--color-accent); opacity: 0.8;
+	}
+
+	/* Title */
+	.hero-title {
+		font-family: var(--font-display);
+		font-weight: 800; line-height: 1.08; letter-spacing: -0.035em;
+		color: var(--color-cream);
+		font-size: clamp(1.8rem, 5.5vw, 3.6rem);
+	}
+
+	.ep-sub { font-size: 0.95rem; color: var(--color-muted); }
+
+	/* Meta */
+	.meta-strip {
+		display: flex; flex-wrap: wrap; align-items: center; gap: 0.45rem;
+		font-size: 0.88rem; color: rgba(240,235,227,0.78);
+	}
+	.dot { color: var(--color-muted); opacity: 0.45; }
+	.star-val { color: var(--color-accent); }
+
+	.rating-pill {
+		display: inline-flex; align-items: center; gap: 0.3rem;
+		padding: 0.1rem 0.45rem; border-radius: 4px;
+		background: rgba(240,235,227,0.06);
+		font-size: 0.78rem; font-weight: 600;
+		color: rgba(240,235,227,0.72);
+	}
+	.rating-source {
+		font-size: 0.58rem; font-weight: 700;
+		text-transform: uppercase; letter-spacing: 0.05em;
+		color: rgba(240,235,227,0.4);
+	}
+	.rating-pill--nexus {
+		background: rgba(212,162,83,0.1);
+		color: var(--color-accent);
+	}
+	.rating-pill--nexus .rating-source {
+		color: rgba(212,162,83,0.55);
+	}
+	.rating-count {
+		font-size: 0.6rem; font-weight: 400;
+		color: rgba(240,235,227,0.4);
+	}
+	.end-val { color: var(--color-muted); }
+
+	.se-tag {
+		font-size: 0.72rem; font-weight: 600;
+		color: var(--color-accent); letter-spacing: 0.015em;
+	}
+	.critic-tag {
+		font-size: 0.68rem; font-weight: 700;
+		color: #6bbd45; padding: 0.125rem 0.45rem;
+		border-radius: 100px; background: rgba(107,189,69,0.12);
+	}
+
+	/* Series line */
+	.series-line {
+		font-family: var(--font-display); font-size: 0.9rem; font-weight: 600;
+		color: var(--color-muted); letter-spacing: -0.01em;
+	}
+	.series-code {
+		margin-left: 0.35rem;
+		font-family: var(--font-mono); font-size: 0.78rem; font-weight: 500;
+		color: var(--color-accent); opacity: 0.8;
+	}
+
+	/* Title */
+	.hero-title {
+		font-family: var(--font-display);
+		font-weight: 800; line-height: 1.08; letter-spacing: -0.035em;
+		color: var(--color-cream);
+		font-size: clamp(1.8rem, 5.5vw, 3.6rem);
+	}
+
+	.ep-sub { font-size: 0.95rem; color: var(--color-muted); }
+
+	/* Meta */
+	.meta-strip {
+		display: flex; flex-wrap: wrap; align-items: center; gap: 0.45rem;
+		font-size: 0.88rem; color: rgba(240,235,227,0.78);
+	}
+	.dot { color: var(--color-muted); opacity: 0.45; }
+	.star-val { color: var(--color-accent); }
+
+	.rating-pill {
+		display: inline-flex; align-items: center; gap: 0.3rem;
+		padding: 0.1rem 0.45rem; border-radius: 4px;
+		background: rgba(240,235,227,0.06);
+		font-size: 0.78rem; font-weight: 600;
+		color: rgba(240,235,227,0.72);
+	}
+	.rating-source {
+		font-size: 0.58rem; font-weight: 700;
+		text-transform: uppercase; letter-spacing: 0.05em;
+		color: rgba(240,235,227,0.4);
+	}
+	.rating-pill--nexus {
+		background: rgba(212,162,83,0.1);
+		color: var(--color-accent);
+	}
+	.rating-pill--nexus .rating-source {
+		color: rgba(212,162,83,0.55);
+	}
+	.rating-count {
+		font-size: 0.6rem; font-weight: 400;
+		color: rgba(240,235,227,0.4);
+	}
+	.end-val { color: var(--color-muted); }
+
 	/* Genres */
 	.genre-row { display: flex; flex-wrap: wrap; gap: 0.35rem; }
 	.genre-chip {
@@ -2857,19 +3420,12 @@
 	.game-play-btn {
 		display: inline-flex; align-items: center; gap: 0.375rem;
 		padding: 0.375rem 0.875rem; border-radius: 8px;
-		background: var(--color-accent, #6d28d9); color: #fff;
-		font-size: 0.8125rem; font-weight: 600;
-		text-decoration: none; cursor: pointer;
-		transition: opacity 0.15s;
+		border: 1px dashed rgba(240,235,227,0.15);
+		background: transparent; color: var(--color-muted);
+		font-size: 0.8125rem; cursor: pointer;
+		transition: all 0.15s;
 	}
-	.game-play-btn:hover { opacity: 0.85; }
-
-	.game-copy-btn {
-		display: flex; align-items: center; justify-content: center;
-		padding: 0.25rem; border-radius: 4px; color: var(--color-muted);
-		transition: color 0.15s; cursor: pointer;
-	}
-	.game-copy-btn:hover { color: var(--color-cream); }
+	.game-play-btn:hover { border-color: var(--color-accent); color: var(--color-accent); }
 
 	.download-rom-btn {
 		display: inline-flex;
@@ -3100,6 +3656,7 @@
 		transition: background 0.2s, border-color 0.2s;
 	}
 	.book-series-link:hover { background: rgba(212,162,83,0.12); border-color: rgba(212,162,83,0.2); }
+	/* Actions */
 	.book-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; }
 	.book-action-btn {
 		display: inline-flex; align-items: center; gap: 0.4rem;
